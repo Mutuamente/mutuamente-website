@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MutuaMente Psicologia</title>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBB5--Q516SWV4VtZyacUPqYWefg49a0Mc",
+  authDomain: "mutuamente-2b7ff.firebaseapp.com",
+  projectId: "mutuamente-2b7ff",
+  storageBucket: "mutuamente-2b7ff.firebasestorage.app",
+  messagingSenderId: "1089363436923",
+  appId: "1:1089363436923:web:9ff3261644bce817ccc9de"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+// ── Default content ──────────────────────────────────────────
+const DEFAULT_CONTENT = {
+  heroTitlePt: "Um espaço de acolhimento,<br>sentido e <em>transformação</em>",
+  heroTitleEn: "A space for welcome,<br>meaning and <em>transformation</em>",
+  heroSubPt: "O MutuaMente é um espaço de psicologia que nasce da paixão pelas pessoas. Aqui a saúde mental é simples, acessível e prioritária. Seja bem-vindo(a). Vamos falar?",
+  heroSubEn: "MutuaMente is a psychology practice born from a passion for people. Here, mental health is simple, accessible and a priority. Welcome. Shall we talk?",
+  aboutNamePt: "Olá, sou a<br>Dra. Sofia Godinho Cabrita",
+  aboutNameEn: "Hello, I'm<br>Dr. Sofia Godinho Cabrita",
+  aboutP1Pt: "Sou Psicóloga Clínica, formada no ISPA – Instituto Universitário de Ciências Psicológicas, Sociais e da Vida, onde realizei a Licenciatura em Psicologia Aplicada (Ramo Clínica) e o Mestrado em Psicologia Clínica. Sou membro efectivo da Ordem dos Psicólogos Portugueses (Cédula n.º 15786).",
+  aboutP1En: "I am a Clinical Psychologist, graduated from ISPA – University Institute of Psychological, Social and Life Sciences, with a degree in Applied Psychology (Clinical specialisation) and a Master's in Clinical Psychology. I am a full member of the Portuguese Psychologists' Association (OPP, no. 15786).",
+  aboutP2Pt: "Ao longo de 15 anos de carreira tenho desenvolvido actividade tanto em ambiente clínico como no mundo corporativo e de consultoria. Sigo o modelo de referência psicanalítico e a minha grande paixão é aliar o conhecimento humano aos desafios das organizações e do próprio indivíduo.",
+  aboutP2En: "Over 15 years of practice, I have worked in both clinical settings and the corporate and consulting world. I follow a psychoanalytic reference model, and my great passion is combining human knowledge with the challenges facing organisations and individuals alike.",
+  address: "Brevemente",
+  phone: "Brevemente",
+  email: "geral@mutuamente.pt",
+  hoursPt: "Brevemente",
+  hoursEn: "Coming soon",
+  priceIndividual: 60, priceMensal: 220, priceOnline: 55, priceAvaliacao: 70
+};
+
+// ── State ─────────────────────────────────────────────────────
+window.MM = {
+  lang: 'pt',
+  content: { ...DEFAULT_CONTENT },
+  news: [],
+  user: null,
+  db, auth,
+  fns: { doc, getDoc, setDoc, collection, getDocs, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, orderBy, query, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+};
+
+// ── Auth listener ─────────────────────────────────────────────
+onAuthStateChanged(auth, user => {
+  window.MM.user = user;
+  if (user) {
+    document.getElementById('admin-panel').style.display = 'block';
+    document.getElementById('main-nav').style.display = 'flex';
+    document.getElementById('admin-login-overlay').classList.remove('show');
+    loadAdminFields();
+    renderNewsAdmin();
+    updateAdminUserDisplay(user.email);
+  } else {
+    document.getElementById('admin-panel').style.display = 'none';
+  }
+});
+
+// ── Load content from Firestore ───────────────────────────────
+async function loadContent() {
+  try {
+    const snap = await getDoc(doc(db, 'content', 'main'));
+    if (snap.exists()) window.MM.content = { ...DEFAULT_CONTENT, ...snap.data() };
+  } catch(e) { console.warn('Content load error:', e); }
+  applyContent();
+}
+
+// ── Load news from Firestore (real-time) ──────────────────────
+const newsQ = query(collection(db, 'news'), orderBy('createdAt', 'desc'));
+onSnapshot(newsQ, snap => {
+  window.MM.news = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderNewsHome();
+  if (window.MM.user) renderNewsAdmin();
+  document.getElementById('stat-news').textContent = window.MM.news.length;
+}, err => console.warn('News listener:', err));
+
+// ── Save content ──────────────────────────────────────────────
+window.saveContent = async function() {
+  if (!window.MM.user) return;
+  const g = id => document.getElementById(id)?.value || '';
+  const c = {
+    heroTitlePt: g('c-hero-title-pt'), heroTitleEn: g('c-hero-title-en'),
+    heroSubPt: g('c-hero-sub-pt'), heroSubEn: g('c-hero-sub-en'),
+    aboutNamePt: g('c-about-name-pt'), aboutNameEn: g('c-about-name-en'),
+    aboutP1Pt: g('c-about-p1-pt'), aboutP1En: g('c-about-p1-en'),
+    aboutP2Pt: g('c-about-p2-pt'), aboutP2En: g('c-about-p2-en'),
+    address: g('c-address').replace(/\n/g,'<br>'),
+    phone: g('c-phone'), email: g('c-email'),
+    hoursPt: g('c-hours-pt').replace(/ \| /g,'<br>'),
+    hoursEn: g('c-hours-en').replace(/ \| /g,'<br>'),
+    priceIndividual: parseInt(g('c-price-individual'))||60,
+    priceMensal: parseInt(g('c-price-mensal'))||220,
+    priceOnline: parseInt(g('c-price-online'))||55,
+    priceAvaliacao: parseInt(g('c-price-avaliacao'))||70
+  };
+  try {
+    await setDoc(doc(db,'content','main'), c);
+    window.MM.content = c;
+    applyContent();
+    showToast('Conteúdo guardado!');
+  } catch(e) { showToast('Erro ao guardar: '+e.message, true); }
+};
+
+// ── News CRUD ─────────────────────────────────────────────────
+window.saveNewsItem = async function() {
+  if (!window.MM.user) return;
+  const titlePt = document.getElementById('nm-title-pt').value.trim();
+  const bodyPt  = document.getElementById('nm-body-pt').value.trim();
+  if (!titlePt || !bodyPt) { alert('Preenche o título e resumo em português.'); return; }
+  const item = {
+    titlePt, bodyPt,
+    titleEn: document.getElementById('nm-title-en').value.trim(),
+    bodyEn:  document.getElementById('nm-body-en').value.trim(),
+    tag:     document.getElementById('nm-tag').value.trim() || 'Novidade',
+    date:    document.getElementById('nm-date').value,
+    createdAt: serverTimestamp()
+  };
+  const editId = document.getElementById('news-editing-id').value;
+  try {
+    if (editId) {
+      await updateDoc(doc(db,'news',editId), item);
+    } else {
+      await addDoc(collection(db,'news'), item);
+    }
+    closeNewsModal();
+    showToast('Notícia guardada!');
+  } catch(e) { showToast('Erro: '+e.message, true); }
+};
+
+window.deleteNews = async function(id) {
+  if (!confirm('Eliminar esta notícia?')) return;
+  try {
+    await deleteDoc(doc(db,'news',id));
+    showToast('Notícia eliminada!');
+  } catch(e) { showToast('Erro: '+e.message, true); }
+};
+
+// ── Auth ──────────────────────────────────────────────────────
+// Expose Firebase actions globally so onclick handlers work
+window.doLogin = async function() {
+  const email = document.getElementById('admin-user').value.trim();
+  const pass  = document.getElementById('admin-pass').value;
+  const errEl = document.getElementById('login-err');
+  errEl.style.display = 'none';
+  try {
+    await signInWithEmailAndPassword(auth, email, pass);
+  } catch(e) {
+    errEl.textContent = 'Email ou password incorrectos.';
+    errEl.style.display = 'block';
+  }
+};
+
+window.doLogout = async function() {
+  await signOut(auth);
+  document.getElementById('admin-panel').style.display = 'none';
+  switchAdminTab('dashboard');
+};
+
+// ── Init ──────────────────────────────────────────────────────
+loadContent();
+
+// Expose UI functions globally (needed because Firebase uses type="module")
+window.showAdminLogin = () => document.getElementById('admin-login-overlay').classList.add('show');
+window.switchAdminTab = function(tab){
+  document.querySelectorAll('.admin-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.admin-nav-links button:not(.admin-logout)').forEach(b=>b.classList.remove('active'));
+  document.getElementById('admin-'+tab).classList.add('active');
+  document.getElementById('atab-'+tab).classList.add('active');
+};
+window.openNewsModal = openNewsModal;
+window.closeNewsModal = closeNewsModal;
+window.saveNewsItem = saveNewsItem;
+window.deleteNews = deleteNews;
+window.saveContent = saveContent;
+</script>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --gold:#C9A84C;--gold-light:#F5EED8;--gold-mid:#E8D5A0;--gold-dark:#9A7A2E;
+  --blue:#2A6496;--blue-light:#E8F1F8;--blue-mid:#5B8DB8;--blue-dark:#1A4A72;
+  --warm:#FDFBF7;--warm-dark:#F5F0E5;
+  --text:#2C2822;--text-muted:#6B6560;
+  --white:#FFFFFF;--border:#E8E0D0;
+  --radius:14px;--radius-sm:8px;
+}
+body{font-family:'Georgia',serif;color:var(--text);background:var(--warm);font-size:16px;line-height:1.75}
+h1,h2,h3,h4{font-family:'Georgia',serif}
+.page{display:none}.page.active{display:block}
+
+/* NAV */
+nav{background:var(--white);border-bottom:1px solid var(--border);padding:0 1.5rem;display:flex;align-items:center;justify-content:space-between;height:72px;position:sticky;top:0;z-index:100;box-shadow:0 1px 8px rgba(0,0,0,.04)}
+.logo{display:flex;align-items:center;gap:12px;cursor:pointer;flex-shrink:0}
+.logo-img{width:54px;height:54px;border-radius:50%;border:2px solid var(--gold-mid);object-fit:contain;background:white;padding:2px}
+.logo-text-wrap .name{font-size:16px;font-weight:700;color:var(--text);font-family:'Georgia',serif}
+.logo-text-wrap .sub{font-size:9px;color:var(--text-muted);letter-spacing:2px;font-family:'Segoe UI',sans-serif;text-transform:uppercase}
+.nav-links{display:flex;gap:2px;align-items:center}
+.nav-links a{padding:7px 11px;font-size:13.5px;color:var(--text-muted);text-decoration:none;border-radius:var(--radius-sm);cursor:pointer;transition:.15s;font-family:'Segoe UI',sans-serif;white-space:nowrap}
+.nav-links a:hover,.nav-links a.active{color:var(--gold-dark)}
+.nav-cta{background:var(--blue)!important;color:white!important;padding:8px 18px!important;border-radius:20px!important;font-weight:500!important}
+.nav-cta:hover{background:var(--blue-dark)!important}
+.lang-toggle{display:flex;border:1px solid var(--border);border-radius:20px;overflow:hidden;margin-left:8px}
+.lang-btn{padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;border:none;color:var(--text-muted);font-family:'Segoe UI',sans-serif;transition:.15s}
+.lang-btn.active{background:var(--gold);color:white}
+
+/* HERO */
+.hero{background:linear-gradient(150deg,var(--warm) 0%,var(--gold-light) 60%,var(--blue-light) 100%);padding:80px 2rem 70px;text-align:center}
+.hero-logo{margin:0 auto 24px;width:120px;height:120px;border-radius:50%;border:3px solid var(--gold-mid);background:white;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 24px rgba(201,168,76,.2);overflow:hidden;padding:6px}
+.hero-logo img{width:100%;height:100%;object-fit:contain}
+.hero h1{font-size:clamp(1.8rem,4.5vw,3rem);font-weight:700;color:var(--text);max-width:640px;margin:0 auto 18px;line-height:1.2}
+.hero h1 em{font-style:normal;color:var(--gold-dark)}
+.hero p{font-size:1.05rem;color:var(--text-muted);max-width:520px;margin:0 auto 36px;line-height:1.8;font-family:'Segoe UI',sans-serif}
+.hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 26px;border-radius:24px;font-size:15px;font-weight:500;border:none;cursor:pointer;transition:.15s;font-family:'Segoe UI',sans-serif}
+.btn-primary{background:var(--blue);color:white}.btn-primary:hover{background:var(--blue-dark)}
+.btn-gold{background:var(--gold);color:white}.btn-gold:hover{background:var(--gold-dark)}
+.btn-outline{background:transparent;color:var(--blue);border:1.5px solid var(--blue)}.btn-outline:hover{background:var(--blue-light)}
+
+/* NEWS */
+.news-section{padding:52px 2rem;background:var(--white);border-bottom:1px solid var(--border)}
+.news-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;max-width:1040px;margin:0 auto}
+.news-card{background:var(--warm);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:.2s}
+.news-card:hover{border-color:var(--gold);transform:translateY(-2px);box-shadow:0 6px 24px rgba(201,168,76,.1)}
+.news-card-img{height:140px;background:linear-gradient(135deg,var(--gold-light),var(--blue-light));display:flex;align-items:center;justify-content:center}
+.news-card-body{padding:18px}
+.news-tag{font-size:.72rem;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold-dark);font-family:'Segoe UI',sans-serif;margin-bottom:8px}
+.news-card-body h3{font-size:.97rem;font-weight:700;margin-bottom:8px;line-height:1.3}
+.news-card-body p{font-size:.85rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif;line-height:1.65}
+.news-date{font-size:.77rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif;margin-top:10px}
+
+/* SECTIONS */
+.section{padding:64px 2rem;max-width:1040px;margin:0 auto}
+.sec-label{font-size:.78rem;letter-spacing:3px;text-transform:uppercase;color:var(--gold-dark);font-family:'Segoe UI',sans-serif;font-weight:600;margin-bottom:10px;text-align:center}
+.sec-title{font-size:1.75rem;font-weight:700;text-align:center;margin-bottom:8px}
+.sec-line{width:50px;height:3px;background:linear-gradient(90deg,var(--gold),var(--blue-mid));border-radius:2px;margin:12px auto 20px}
+.sec-sub{font-size:.97rem;color:var(--text-muted);text-align:center;margin-bottom:44px;max-width:540px;margin-left:auto;margin-right:auto;font-family:'Segoe UI',sans-serif}
+.srv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:18px}
+.srv-card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:28px 24px;transition:.2s;position:relative;overflow:hidden}
+.srv-card::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:linear-gradient(180deg,var(--gold),var(--blue-mid))}
+.srv-card:hover{border-color:var(--gold);transform:translateY(-3px);box-shadow:0 8px 30px rgba(201,168,76,.12)}
+.srv-icon{width:48px;height:48px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;background:var(--gold-light);border-radius:var(--radius-sm);border:1px solid var(--gold-mid)}
+.srv-card h3{font-size:1rem;font-weight:700;margin-bottom:8px}
+.srv-card p{font-size:.88rem;color:var(--text-muted);line-height:1.7;font-family:'Segoe UI',sans-serif}
+.about-split{display:grid;grid-template-columns:1fr 1.1fr;gap:52px;align-items:center}
+.about-photo-inner{background:linear-gradient(135deg,var(--gold-light),var(--blue-light));border-radius:20px;height:420px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);position:relative}
+.about-badge{position:absolute;bottom:20px;right:-16px;background:white;border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+.about-badge .num{font-size:1.8rem;font-weight:700;color:var(--gold-dark);line-height:1}
+.about-badge .lbl{font-size:.75rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif}
+.about-content .tag-line{font-size:.78rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold-dark);font-family:'Segoe UI',sans-serif;font-weight:600;margin-bottom:14px}
+.about-content h2{font-size:1.9rem;font-weight:700;margin-bottom:20px;line-height:1.25}
+.about-content p{color:var(--text-muted);margin-bottom:14px;font-size:.97rem;font-family:'Segoe UI',sans-serif;line-height:1.8}
+.cred-list{list-style:none;margin:20px 0 28px}
+.cred-list li{font-size:.9rem;color:var(--text-muted);padding:7px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;font-family:'Segoe UI',sans-serif}
+.cred-list li::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--gold);flex-shrink:0}
+.price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px}
+.price-card{border:1px solid var(--border);border-radius:var(--radius);padding:28px 24px;background:var(--white);position:relative}
+.price-card.featured{border:2px solid var(--gold);background:linear-gradient(135deg,var(--warm),var(--gold-light))}
+.feat-badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:var(--gold);color:white;font-size:.72rem;padding:4px 14px;border-radius:10px;font-weight:600;font-family:'Segoe UI',sans-serif;white-space:nowrap}
+.price-card h3{font-size:.95rem;font-weight:700;margin-bottom:6px}
+.price-val{font-size:2.1rem;font-weight:700;color:var(--blue-dark);line-height:1.1}
+.price-val small{font-size:.9rem;color:var(--text-muted);font-weight:400}
+.price-desc{font-size:.85rem;color:var(--text-muted);margin:10px 0 18px;font-family:'Segoe UI',sans-serif;line-height:1.6}
+.price-card ul{list-style:none;margin-bottom:22px}
+.price-card ul li{font-size:.87rem;padding:5px 0;color:var(--text-muted);display:flex;gap:8px;font-family:'Segoe UI',sans-serif;border-bottom:1px solid var(--border)}
+.price-card ul li::before{content:'✓';color:var(--gold-dark);font-weight:700;flex-shrink:0}
+.testi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:18px}
+.testi-card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:26px}
+.testi-stars{color:var(--gold);margin-bottom:12px;letter-spacing:2px}
+.testi-card p{font-size:.92rem;color:var(--text-muted);font-style:italic;margin-bottom:16px;line-height:1.75;font-family:'Segoe UI',sans-serif}
+.testi-author{font-size:.84rem;font-weight:600;font-family:'Segoe UI',sans-serif}
+.faq-item{border-bottom:1px solid var(--border);padding:18px 0}
+.faq-q{font-weight:600;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:.96rem;gap:16px}
+.faq-q:hover{color:var(--gold-dark)}
+.faq-q span{color:var(--gold);font-size:1.2rem;flex-shrink:0}
+.faq-a{font-size:.91rem;color:var(--text-muted);max-height:0;overflow:hidden;transition:max-height .3s,padding .3s;font-family:'Segoe UI',sans-serif;line-height:1.75}
+.faq-a.open{max-height:240px;padding-top:12px}
+.contact-grid{display:grid;grid-template-columns:1fr 1.2fr;gap:44px;align-items:start}
+.cinfo-item{display:flex;gap:14px;margin-bottom:22px;align-items:flex-start}
+.cinfo-icon{width:42px;height:42px;background:var(--gold-light);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid var(--gold-mid)}
+.cinfo-item h4{font-size:.88rem;font-weight:600;margin-bottom:2px;font-family:'Segoe UI',sans-serif}
+.cinfo-item p{font-size:.88rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif}
+.map-box{background:linear-gradient(135deg,var(--gold-light),var(--blue-light));height:180px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:.9rem;border:1px solid var(--border);margin-top:18px;font-family:'Segoe UI',sans-serif;gap:10px}
+.form-card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:32px}
+.form-card h3{font-size:1.1rem;font-weight:700;margin-bottom:22px}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:.85rem;font-weight:600;margin-bottom:6px;color:var(--text);font-family:'Segoe UI',sans-serif}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:.92rem;color:var(--text);background:var(--warm);outline:none;transition:.15s;font-family:'Segoe UI',sans-serif}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,168,76,.1);background:var(--white)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.bk-steps{display:flex;margin-bottom:32px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--white)}
+.bk-step-btn{flex:1;padding:14px 8px;font-size:.84rem;font-weight:500;cursor:pointer;background:transparent;border:none;color:var(--text-muted);transition:.15s;border-right:1px solid var(--border);font-family:'Segoe UI',sans-serif}
+.bk-step-btn:last-child{border-right:none}
+.bk-step-btn.active{background:var(--blue);color:white}
+.bk-step-btn.done{background:var(--blue-light);color:var(--blue-dark)}
+.bk-pane{display:none}.bk-pane.active{display:block}
+.cal-wrap{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
+.cal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.cal-hdr button{background:transparent;border:1px solid var(--border);padding:6px 14px;border-radius:var(--radius-sm);cursor:pointer;font-size:.85rem;font-family:'Segoe UI',sans-serif}
+.cal-hdr button:hover{background:var(--gold-light);border-color:var(--gold)}
+.cal-hdr span{font-weight:600;font-size:.95rem;font-family:'Segoe UI',sans-serif}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center}
+.cal-lbl{font-size:.75rem;font-weight:600;color:var(--text-muted);padding:6px 0;font-family:'Segoe UI',sans-serif}
+.cal-day{padding:8px 3px;font-size:.87rem;border-radius:8px;cursor:pointer;transition:.15s;font-family:'Segoe UI',sans-serif}
+.cal-day:hover:not(.emp):not(.past){background:var(--gold-light);color:var(--gold-dark)}
+.cal-day.past{color:var(--border);cursor:default}.cal-day.emp{cursor:default}
+.cal-day.today{font-weight:700;color:var(--blue)}.cal-day.sel{background:var(--blue)!important;color:white!important;font-weight:600}
+.time-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}
+.tslot{padding:9px;border:1px solid var(--border);border-radius:var(--radius-sm);text-align:center;font-size:.87rem;cursor:pointer;transition:.15s;font-family:'Segoe UI',sans-serif;background:var(--white)}
+.tslot:hover:not(.taken){border-color:var(--gold);background:var(--gold-light)}
+.tslot.sel{background:var(--blue);color:white;border-color:var(--blue)}
+.tslot.taken{color:var(--border);cursor:default;background:var(--warm-dark)}
+.pm-summary{background:var(--gold-light);border:1px solid var(--gold-mid);border-radius:var(--radius);padding:22px;margin-bottom:20px}
+.pm-summary h3{font-size:.95rem;font-weight:700;margin-bottom:14px;font-family:'Segoe UI',sans-serif}
+.sum-row{display:flex;justify-content:space-between;padding:7px 0;font-size:.9rem;border-bottom:1px solid var(--gold-mid);font-family:'Segoe UI',sans-serif}
+.sum-row.total{font-weight:700;font-size:1rem;border:none;padding-top:12px;color:var(--blue-dark)}
+.pm-methods{display:flex;gap:10px;margin-bottom:18px}
+.pm-btn{flex:1;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;text-align:center;font-size:.87rem;background:var(--white);transition:.15s;font-family:'Segoe UI',sans-serif}
+.pm-btn.active{border-color:var(--gold);background:var(--gold-light);color:var(--gold-dark);font-weight:600}
+.card-row{display:grid;grid-template-columns:1fr 90px 72px;gap:10px}
+.success-wrap{text-align:center;padding:52px 32px;background:linear-gradient(135deg,var(--gold-light),var(--blue-light));border-radius:var(--radius);border:1px solid var(--border)}
+.success-wrap h2{font-size:1.5rem;font-weight:700;color:var(--blue-dark);margin-bottom:12px}
+.success-wrap p{font-size:.93rem;color:var(--text-muted);margin-bottom:6px;font-family:'Segoe UI',sans-serif}
+.cta-strip{background:linear-gradient(135deg,var(--blue-dark),var(--blue));padding:56px 2rem;text-align:center;color:white}
+.cta-strip h2{font-size:1.75rem;margin-bottom:12px}
+.cta-strip p{opacity:.82;margin-bottom:28px;font-size:1rem;font-family:'Segoe UI',sans-serif}
+footer{background:var(--text);color:rgba(255,255,255,.65);padding:48px 2rem 22px}
+.footer-inner{max-width:1040px;margin:0 auto;display:grid;grid-template-columns:2fr 1fr 1fr;gap:40px;margin-bottom:36px}
+footer h4{color:white;font-size:.92rem;font-weight:600;margin-bottom:14px;font-family:'Segoe UI',sans-serif}
+footer a,footer p{font-size:.86rem;line-height:1.9;color:rgba(255,255,255,.55);text-decoration:none;display:block;cursor:pointer;font-family:'Segoe UI',sans-serif}
+footer a:hover{color:var(--gold)}
+.footer-bot{max-width:1040px;margin:0 auto;padding-top:18px;border-top:1px solid rgba(255,255,255,.08);display:flex;justify-content:space-between;font-size:.8rem;color:rgba(255,255,255,.3);font-family:'Segoe UI',sans-serif;flex-wrap:wrap;gap:8px}
+.badge-pill{display:inline-block;font-size:.74rem;padding:3px 10px;border-radius:10px;font-weight:500;font-family:'Segoe UI',sans-serif;background:var(--gold-light);color:var(--gold-dark)}
+.badge-blue{background:var(--blue-light);color:var(--blue-dark)}
+
+/* ADMIN LOGIN */
+#admin-login-overlay{position:fixed;inset:0;background:rgba(44,40,34,.85);z-index:999;display:none;align-items:center;justify-content:center}
+#admin-login-overlay.show{display:flex}
+.login-box{background:var(--white);border-radius:20px;padding:40px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.login-logo{text-align:center;margin-bottom:24px}
+.login-logo img{width:70px;height:70px;object-fit:contain}
+.login-title{font-size:1.15rem;font-weight:700;text-align:center;margin-bottom:4px}
+.login-sub{font-size:.85rem;color:var(--text-muted);text-align:center;margin-bottom:24px;font-family:'Segoe UI',sans-serif}
+.login-err{background:#FEE;border:1px solid #FCC;border-radius:8px;padding:10px 14px;font-size:.85rem;color:#C00;margin-bottom:16px;font-family:'Segoe UI',sans-serif;display:none}
+.login-hint{font-size:.78rem;color:var(--text-muted);text-align:center;margin-top:10px;font-family:'Segoe UI',sans-serif}
+
+/* ADMIN PANEL */
+#admin-panel{display:none;position:fixed;inset:0;background:#F4F6FA;z-index:998;overflow-y:auto}
+.admin-nav{background:var(--blue-dark);color:white;padding:0 2rem;display:flex;align-items:center;justify-content:space-between;height:60px;position:sticky;top:0;z-index:10}
+.admin-nav .brand{display:flex;align-items:center;gap:10px;font-family:'Georgia',serif;font-size:1rem;font-weight:700}
+.admin-nav .brand img{width:34px;height:34px;border-radius:50%;object-fit:contain;background:white;padding:2px}
+.admin-nav-links{display:flex;gap:4px;align-items:center}
+.admin-nav-links button{background:rgba(255,255,255,.1);border:none;color:rgba(255,255,255,.8);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:.85rem;font-family:'Segoe UI',sans-serif;transition:.15s}
+.admin-nav-links button:hover,.admin-nav-links button.active{background:rgba(255,255,255,.25);color:white}
+.admin-logout{background:rgba(255,100,100,.2)!important;color:#FFB3B3!important}
+.admin-logout:hover{background:rgba(255,100,100,.35)!important}
+.admin-user-badge{font-size:.78rem;color:rgba(255,255,255,.5);font-family:'Segoe UI',sans-serif;padding:4px 10px;border:1px solid rgba(255,255,255,.15);border-radius:12px}
+.admin-content{max-width:1000px;margin:0 auto;padding:32px 2rem}
+.admin-tab{display:none}.admin-tab.active{display:block}
+.admin-section-title{font-size:1.2rem;font-weight:700;margin-bottom:20px;color:var(--text);display:flex;align-items:center;gap:10px}
+.admin-card{background:white;border-radius:var(--radius);border:1px solid var(--border);padding:24px;margin-bottom:20px}
+.admin-card h4{font-size:.95rem;font-weight:700;margin-bottom:16px;color:var(--text);padding-bottom:10px;border-bottom:1px solid var(--border)}
+.admin-field{margin-bottom:14px}
+.admin-field label{display:block;font-size:.82rem;font-weight:600;color:var(--text-muted);margin-bottom:5px;font-family:'Segoe UI',sans-serif;text-transform:uppercase;letter-spacing:.5px}
+.admin-field input,.admin-field textarea,.admin-field select{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:.92rem;color:var(--text);background:var(--warm);font-family:'Segoe UI',sans-serif;outline:none;transition:.15s}
+.admin-field input:focus,.admin-field textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,168,76,.1);background:white}
+.admin-field textarea{resize:vertical;min-height:80px}
+.admin-save-btn{background:var(--blue);color:white;border:none;padding:10px 24px;border-radius:20px;cursor:pointer;font-size:.9rem;font-weight:500;font-family:'Segoe UI',sans-serif;transition:.15s;display:inline-flex;align-items:center;gap:8px}
+.admin-save-btn:hover{background:var(--blue-dark)}
+.admin-save-btn.gold{background:var(--gold)}.admin-save-btn.gold:hover{background:var(--gold-dark)}
+.saved-toast{background:#2E7D32;color:white;padding:12px 20px;border-radius:10px;font-size:.88rem;font-family:'Segoe UI',sans-serif;position:fixed;bottom:24px;right:24px;z-index:9999;display:none;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,.2)}
+.saved-toast.error{background:#C62828}
+.saved-toast.show{display:flex}
+.news-item-admin{background:var(--warm);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px}
+.news-item-admin h5{font-size:.9rem;font-weight:600;margin-bottom:4px}
+.news-item-admin p{font-size:.82rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif}
+.news-item-btns{display:flex;gap:8px;margin-top:10px}
+.news-edit-btn,.news-del-btn{padding:5px 14px;border-radius:8px;border:none;cursor:pointer;font-size:.82rem;font-family:'Segoe UI',sans-serif;font-weight:500}
+.news-edit-btn{background:var(--blue-light);color:var(--blue-dark)}
+.news-del-btn{background:#FEE;color:#C00}
+.add-news-btn{background:var(--gold-light);color:var(--gold-dark);border:1.5px dashed var(--gold);border-radius:var(--radius-sm);padding:12px;width:100%;cursor:pointer;font-size:.9rem;font-family:'Segoe UI',sans-serif;font-weight:500;margin-bottom:16px;transition:.15s}
+.add-news-btn:hover{background:var(--gold-mid)}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1100;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.show{display:flex}
+.modal-box{background:white;border-radius:var(--radius);padding:28px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto}
+.modal-box h3{font-size:1.1rem;font-weight:700;margin-bottom:20px}
+.modal-btns{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+.stat-card{background:white;border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center}
+.stat-card .num{font-size:2rem;font-weight:700;color:var(--gold-dark);font-family:'Georgia',serif}
+.stat-card .lbl{font-size:.82rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif;margin-top:4px}
+.firebase-badge{background:#FFF3E0;color:#E65100;border:1px solid #FFCC02;border-radius:8px;padding:8px 14px;font-size:.82rem;font-family:'Segoe UI',sans-serif;display:flex;align-items:center;gap:8px;margin-bottom:16px}
+
+@media(max-width:700px){
+  .about-split,.contact-grid,.form-row,.footer-inner,.price-grid,.card-row,.stats-grid{grid-template-columns:1fr}
+  .about-badge{right:10px}.bk-steps{flex-direction:column}
+  .bk-step-btn{border-right:none;border-bottom:1px solid var(--border)}
+  .time-grid{grid-template-columns:repeat(3,1fr)}
+  nav .nav-links .hide-sm{display:none}
+  .admin-user-badge{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- SVG ICONS -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="ic-wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12c1.5-3 3-4.5 4.5-4.5S9 9 10.5 9 13.5 6 15 6s3 3 4.5 3S22 7.5 22 7.5"/><path d="M2 17c1.5-2 3-3 4.5-3S9 16 10.5 16 13.5 13 15 13s3 3 4.5 3 2.5-2 2.5-2"/></symbol>
+  <symbol id="ic-mind" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3C6 3 4 5.5 4 8c0 1.5.6 2.8 1.5 3.7C4.6 12.7 4 14 4 15.5 4 18 6 20 9 20h6c3 0 5-2 5-4.5 0-1.5-.6-2.8-1.5-3.8C19.4 10.8 20 9.5 20 8c0-2.5-2-5-5-5"/><path d="M9 3c0 2 1.5 3.5 3 3.5S15 5 15 3"/><line x1="12" y1="6.5" x2="12" y2="13"/></symbol>
+  <symbol id="ic-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21C12 21 3 14 3 8.5A4.5 4.5 0 0 1 12 6a4.5 4.5 0 0 1 9 2.5C21 14 12 21 12 21z"/></symbol>
+  <symbol id="ic-leaf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8C17 8 18 4 12 3C6 3 3 8 3 12c0 3 2 6 5 7"/><path d="M3 21l8-8"/></symbol>
+  <symbol id="ic-loop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6"/><polyline points="3 3 3 7 7 7"/></symbol>
+  <symbol id="ic-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></symbol>
+  <symbol id="ic-person" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></symbol>
+  <symbol id="ic-laptop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M1 21h22"/></symbol>
+  <symbol id="ic-clipboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><line x1="9" y1="12" x2="15" y2="12"/></symbol>
+  <symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></symbol>
+  <symbol id="ic-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2"/></symbol>
+  <symbol id="ic-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 4.4 5.2 2 2 0 0 1 6.4 3h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.4 2.1L10.9 11c1.8 3 4.1 5.3 7 7l1.5-1.5a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.8 2z"/></symbol>
+  <symbol id="ic-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="2,4 12,13 22,4"/></symbol>
+  <symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12,7 12,12 15,15"/></symbol>
+  <symbol id="ic-instagram" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r=".5" fill="currentColor"/></symbol>
+  <symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="ic-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/></symbol>
+  <symbol id="ic-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></symbol>
+  <symbol id="ic-news" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8V6Z"/></symbol>
+  <symbol id="ic-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="ic-fire" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c0 0-5 4-5 9a5 5 0 0 0 10 0c0-3-2-6-2-6s-1 2-2 2c-1 0-1-5-1-5z"/></symbol>
+</svg>
+
+<!-- ADMIN LOGIN -->
+<div id="admin-login-overlay">
+  <div class="login-box">
+    <div class="login-logo">
+      <img id="login-logo-img" src="" alt="MutuaMente" style="width:70px;height:70px;object-fit:contain;display:block;margin:0 auto">
+    </div>
+    <div class="login-title">Portal de Administração</div>
+    <div class="login-sub">MutuaMente Psicologia</div>
+    <div class="login-err" id="login-err"></div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label style="font-family:'Segoe UI',sans-serif;font-size:.85rem;font-weight:600;margin-bottom:6px;display:block;color:var(--text)">Email</label>
+      <input type="email" id="admin-user" placeholder="teu@email.com" autocomplete="username">
+    </div>
+    <div class="form-group" style="margin-bottom:20px">
+      <label style="font-family:'Segoe UI',sans-serif;font-size:.85rem;font-weight:600;margin-bottom:6px;display:block;color:var(--text)">Password</label>
+      <input type="password" id="admin-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="doLogin()">
+      <svg width="16" height="16" style="color:white"><use href="#ic-lock"/></svg>Entrar
+    </button>
+    <div class="login-hint">Usa o email e password criados no Firebase Authentication</div>
+    <button onclick="document.getElementById('admin-login-overlay').classList.remove('show')" style="width:100%;margin-top:10px;background:none;border:none;color:var(--text-muted);font-size:.85rem;cursor:pointer;font-family:'Segoe UI',sans-serif">Cancelar</button>
+  </div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div id="admin-panel">
+  <div class="admin-nav">
+    <div class="brand">
+      <img id="admin-nav-logo" src="" alt="MutuaMente" style="display:block">
+      MutuaMente Admin
+    </div>
+    <div class="admin-nav-links">
+      <span class="admin-user-badge" id="admin-user-display">—</span>
+      <button onclick="switchAdminTab('dashboard')" id="atab-dashboard" class="active">Dashboard</button>
+      <button onclick="switchAdminTab('news')" id="atab-news">Notícias</button>
+      <button onclick="switchAdminTab('content')" id="atab-content">Conteúdo</button>
+      <button onclick="doLogout()" class="admin-logout">Sair</button>
+    </div>
+  </div>
+  <div class="admin-content">
+
+    <!-- DASHBOARD -->
+    <div class="admin-tab active" id="admin-dashboard">
+      <div class="firebase-badge">
+        <svg width="16" height="16" style="color:#E65100"><use href="#ic-fire"/></svg>
+        Ligado ao Firebase Firestore — dados sincronizados em tempo real em todos os dispositivos
+      </div>
+      <div class="admin-section-title">Dashboard</div>
+      <div class="stats-grid">
+        <div class="stat-card"><div class="num" id="stat-news">0</div><div class="lbl">Notícias publicadas</div></div>
+        <div class="stat-card"><div class="num">8+</div><div class="lbl">Anos de experiência</div></div>
+        <div class="stat-card"><div class="num">300+</div><div class="lbl">Clientes acompanhados</div></div>
+      </div>
+      <div class="admin-card">
+        <h4>Acesso rápido</h4>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <button class="admin-save-btn" onclick="switchAdminTab('news')"><svg width="15" height="15"><use href="#ic-news"/></svg>Gerir Notícias</button>
+          <button class="admin-save-btn" onclick="switchAdminTab('content')"><svg width="15" height="15"><use href="#ic-settings"/></svg>Editar Conteúdo</button>
+          <button class="admin-save-btn gold" onclick="doLogout()">Ver Website</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEWS -->
+    <div class="admin-tab" id="admin-news">
+      <div class="admin-section-title"><svg width="20" height="20" style="color:var(--gold-dark)"><use href="#ic-news"/></svg>Notícias em Destaque</div>
+      <div class="admin-card">
+        <h4>Publicações</h4>
+        <button class="add-news-btn" onclick="openNewsModal()">+ Adicionar nova notícia</button>
+        <div id="news-list-admin"><p style="color:var(--text-muted);font-family:'Segoe UI',sans-serif;font-size:.9rem">A carregar...</p></div>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="admin-tab" id="admin-content">
+      <div class="admin-section-title"><svg width="20" height="20" style="color:var(--gold-dark)"><use href="#ic-settings"/></svg>Editar Conteúdo</div>
+      <div class="admin-card">
+        <h4>Hero — Página Inicial</h4>
+        <div class="admin-field"><label>Título (PT)</label><input id="c-hero-title-pt" type="text"></div>
+        <div class="admin-field"><label>Subtítulo (PT)</label><textarea id="c-hero-sub-pt"></textarea></div>
+        <div class="admin-field"><label>Título (EN)</label><input id="c-hero-title-en" type="text"></div>
+        <div class="admin-field"><label>Subtítulo (EN)</label><textarea id="c-hero-sub-en"></textarea></div>
+        <button class="admin-save-btn" onclick="saveContent()"><svg width="15" height="15"><use href="#ic-check"/></svg>Guardar no Firebase</button>
+      </div>
+      <div class="admin-card">
+        <h4>Sobre Mim</h4>
+        <div class="admin-field"><label>Nome / Título (PT)</label><input id="c-about-name-pt" type="text"></div>
+        <div class="admin-field"><label>Parágrafo 1 (PT)</label><textarea id="c-about-p1-pt"></textarea></div>
+        <div class="admin-field"><label>Parágrafo 2 (PT)</label><textarea id="c-about-p2-pt"></textarea></div>
+        <div class="admin-field"><label>Nome / Título (EN)</label><input id="c-about-name-en" type="text"></div>
+        <div class="admin-field"><label>Parágrafo 1 (EN)</label><textarea id="c-about-p1-en"></textarea></div>
+        <div class="admin-field"><label>Parágrafo 2 (EN)</label><textarea id="c-about-p2-en"></textarea></div>
+        <button class="admin-save-btn" onclick="saveContent()"><svg width="15" height="15"><use href="#ic-check"/></svg>Guardar no Firebase</button>
+      </div>
+      <div class="admin-card">
+        <h4>Contactos</h4>
+        <div class="admin-field"><label>Morada</label><input id="c-address" type="text"></div>
+        <div class="admin-field"><label>Telemóvel</label><input id="c-phone" type="text"></div>
+        <div class="admin-field"><label>Email</label><input id="c-email" type="text"></div>
+        <div class="admin-field"><label>Horário (PT)</label><input id="c-hours-pt" type="text" placeholder="Seg-Sex: 9h-20h | Sáb: 9h-13h"></div>
+        <div class="admin-field"><label>Horário (EN)</label><input id="c-hours-en" type="text" placeholder="Mon-Fri: 9am-8pm | Sat: 9am-1pm"></div>
+        <button class="admin-save-btn" onclick="saveContent()"><svg width="15" height="15"><use href="#ic-check"/></svg>Guardar no Firebase</button>
+      </div>
+      <div class="admin-card">
+        <h4>Preços (€)</h4>
+        <div class="form-row" style="gap:14px">
+          <div class="admin-field"><label>Consulta Individual</label><input id="c-price-individual" type="number"></div>
+          <div class="admin-field"><label>Pacote Mensal</label><input id="c-price-mensal" type="number"></div>
+          <div class="admin-field"><label>Consulta Online</label><input id="c-price-online" type="number"></div>
+          <div class="admin-field"><label>Avaliação Inicial</label><input id="c-price-avaliacao" type="number"></div>
+        </div>
+        <button class="admin-save-btn" onclick="saveContent()"><svg width="15" height="15"><use href="#ic-check"/></svg>Guardar no Firebase</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- NEWS MODAL -->
+<div class="modal-overlay" id="news-modal">
+  <div class="modal-box">
+    <h3 id="news-modal-title">Nova Notícia</h3>
+    <input type="hidden" id="news-editing-id">
+    <div class="admin-field"><label>Título (PT) *</label><input id="nm-title-pt" type="text" placeholder="Título da notícia em português"></div>
+    <div class="admin-field"><label>Resumo (PT) *</label><textarea id="nm-body-pt" placeholder="Breve descrição..."></textarea></div>
+    <div class="admin-field"><label>Título (EN)</label><input id="nm-title-en" type="text" placeholder="News title in English"></div>
+    <div class="admin-field"><label>Summary (EN)</label><textarea id="nm-body-en" placeholder="Brief description..."></textarea></div>
+    <div class="admin-field"><label>Categoria / Tag</label><input id="nm-tag" type="text" placeholder="ex: Saúde Mental, Evento, Artigo..."></div>
+    <div class="admin-field"><label>Data</label><input id="nm-date" type="date"></div>
+    <div class="modal-btns">
+      <button class="btn btn-outline" onclick="closeNewsModal()">Cancelar</button>
+      <button class="admin-save-btn" onclick="saveNewsItem()"><svg width="15" height="15"><use href="#ic-check"/></svg>Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="saved-toast" id="saved-toast"><svg width="16" height="16"><use href="#ic-check"/></svg><span id="toast-msg">Guardado!</span></div>
+
+<!-- NAV -->
+<nav id="main-nav">
+  <div class="logo" onclick="showPage('home')">
+    <img class="logo-img site-logo" src="" alt="MutuaMente" id="nav-logo-img">
+    <div class="logo-text-wrap">
+      <div class="name">MutuaMente</div>
+      <div class="sub" id="nav-sub-text">Psicologia</div>
+    </div>
+  </div>
+  <div class="nav-links">
+    <a onclick="showPage('home')" id="nav-home" class="active hide-sm" data-pt="Início" data-en="Home">Início</a>
+    <a onclick="showPage('about')" id="nav-about" class="hide-sm" data-pt="Sobre mim" data-en="About Me">Sobre mim</a>
+    <a onclick="showPage('services')" id="nav-services" class="hide-sm" data-pt="Consultas" data-en="Sessions">Consultas</a>
+    <a onclick="showPage('faq')" id="nav-faq" class="hide-sm" data-pt="FAQ" data-en="FAQ">FAQ</a>
+    <a onclick="showPage('contact')" id="nav-contact" class="hide-sm" data-pt="Contacto" data-en="Contact">Contacto</a>
+    <a onclick="showPage('booking')" id="nav-booking" class="nav-cta" data-pt="Marcar Consulta" data-en="Book a Session">Marcar Consulta</a>
+    <div class="lang-toggle">
+      <button class="lang-btn active" onclick="setLang('pt')">PT</button>
+      <button class="lang-btn" onclick="setLang('en')">EN</button>
+    </div>
+    <button onclick="showAdminLogin()" title="Admin" style="background:none;border:none;cursor:pointer;padding:6px;opacity:.3;margin-left:4px;transition:.2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.3">
+      <svg width="18" height="18" style="color:var(--text-muted)"><use href="#ic-settings"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- HOME -->
+<div class="page active" id="page-home">
+  <div class="hero">
+    <div class="hero-logo"><img class="site-logo" src="" alt="MutuaMente" id="hero-logo-img"></div>
+    <p style="font-size:.78rem;letter-spacing:3px;text-transform:uppercase;color:var(--gold-dark);font-family:'Segoe UI',sans-serif;font-weight:600;margin-bottom:14px" data-pt="Psicóloga Clínica · Cédula OPP n.º 15786" data-en="Clinical Psychologist · OPP no. 15786">Psicóloga Clínica · Cédula OPP n.º 15786</p>
+    <h1 id="hero-title-el">Um espaço seguro para<br><em>cresceres</em> contigo mesmo</h1>
+    <p id="hero-sub-el">Acompanhamento psicológico personalizado, num ambiente de confiança, empatia e sem julgamentos. Presencial em Lisboa ou online.</p>
+    <div class="hero-btns">
+      <button class="btn btn-primary" onclick="showPage('booking')"><svg width="16" height="16"><use href="#ic-calendar"/></svg><span data-pt="Marcar Consulta" data-en="Book a Session">Marcar Consulta</span></button>
+      <button class="btn btn-outline" onclick="showPage('about')"><span data-pt="Conhecer-me melhor" data-en="Learn more about me">Conhecer-me melhor</span></button>
+    </div>
+  </div>
+
+  <!-- Trust bar -->
+  <div style="background:var(--white);border-bottom:1px solid var(--border);border-top:1px solid var(--border)">
+    <div style="max-width:1040px;margin:0 auto;padding:28px 2rem;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;text-align:center">
+      <div><div style="font-size:1.8rem;font-weight:700;color:var(--gold-dark);font-family:'Georgia',serif">300+</div><div style="font-size:.85rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif" data-pt="Pessoas acompanhadas" data-en="Clients supported">Pessoas acompanhadas</div></div>
+      <div style="border-left:1px solid var(--border);border-right:1px solid var(--border)"><div style="font-size:1.8rem;font-weight:700;color:var(--gold-dark);font-family:'Georgia',serif">8 <span data-pt="anos" data-en="yrs">anos</span></div><div style="font-size:.85rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif" data-pt="De experiência clínica" data-en="Clinical experience">De experiência clínica</div></div>
+      <div><div style="font-size:1.8rem;font-weight:700;color:var(--gold-dark);font-family:'Georgia',serif">100%</div><div style="font-size:.85rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif" data-pt="Confidencialidade" data-en="Confidential">Confidencialidade</div></div>
+    </div>
+  </div>
+
+  <!-- NEWS -->
+  <div class="news-section" id="news-section-home" style="display:none">
+    <div style="max-width:1040px;margin:0 auto">
+      <div class="sec-label" data-pt="Novidades" data-en="Latest news">Novidades</div>
+      <div class="sec-title" data-pt="Em Destaque" data-en="Featured">Em Destaque</div>
+      <div class="sec-line" style="margin-bottom:32px"></div>
+      <div class="news-grid" id="news-grid-home"></div>
+    </div>
+  </div>
+
+  <!-- Services -->
+  <div class="section">
+    <div class="sec-label" data-pt="Áreas de intervenção" data-en="Areas of focus">Áreas de intervenção</div>
+    <div class="sec-title" data-pt="Como posso ajudar" data-en="How I can help">Como posso ajudar</div>
+    <div class="sec-line"></div>
+    <p class="sec-sub" data-pt="Cada pessoa é única. Trabalho com diferentes temáticas, sempre com uma abordagem adaptada a ti." data-en="Every person is unique. I work across a range of themes, always with an approach tailored to you.">Cada pessoa é única. Trabalho com diferentes temáticas, sempre com uma abordagem adaptada a ti.</p>
+    <div class="srv-grid">
+      <div class="srv-card"><div class="srv-icon"><svg width="24" height="24" style="color:var(--gold-dark)"><use href="#ic-wave"/></svg></div><h3 data-pt="Ansiedade & Stresse" data-en="Anxiety & Stress">Ansiedade & Stresse</h3><p data-pt="Apoio especializado para gerir a ansiedade, o stresse e os pensamentos que parecem não ter fim — num espaço seguro, sem julgamentos." data-en="Specialist support to manage anxiety, stress and relentless thoughts — in a safe, judgement-free space.">Apoio especializado para gerir a ansiedade, o stresse e os pensamentos que parecem não ter fim — num espaço seguro, sem julgamentos.</p></div>
+      <div class="srv-card"><div class="srv-icon"><svg width="24" height="24" style="color:var(--gold-dark)"><use href="#ic-mind"/></svg></div><h3 data-pt="Depressão & Bem-estar" data-en="Depression & Wellbeing">Depressão & Bem-estar</h3><p data-pt="Quando o desânimo, a tristeza ou o vazio persistem, a psicoterapia ajuda a encontrar novos sentidos e a recuperar o equilíbrio emocional." data-en="When low mood, sadness or emptiness persist, psychotherapy helps find new meaning and restore emotional balance.">Quando o desânimo, a tristeza ou o vazio persistem, a psicoterapia ajuda a encontrar novos sentidos e a recuperar o equilíbrio emocional.</p></div>
+      <div class="srv-card"><div class="srv-icon"><svg width="24" height="24" style="color:var(--gold-dark)"><use href="#ic-heart"/></svg></div><h3 data-pt="Luto, Perdas & Mudança" data-en="Grief, Loss & Change">Luto, Perdas & Mudança</h3><p data-pt="Separações, perdas importantes ou grandes mudanças de vida — atravessar estes momentos com suporte psicológico faz toda a diferença." data-en="Separations, significant losses or major life changes — navigating these moments with psychological support makes all the difference.">Separações, perdas importantes ou grandes mudanças de vida — atravessar estes momentos com suporte psicológico faz toda a diferença.</p></div>
+      <div class="srv-card"><div class="srv-icon"><svg width="24" height="24" style="color:var(--gold-dark)"><use href="#ic-leaf"/></svg></div><h3 data-pt="Autoconhecimento & Crescimento" data-en="Self-knowledge & Growth">Autoconhecimento & Crescimento</h3><p data-pt="A terapia é também um espaço de descoberta. Conhecer-se melhor permite lidar com mais clareza com as emoções, as relações e os desafios do dia a dia." data-en="Therapy is also a space for discovery. Knowing yourself better allows you to navigate emotions, relationships and daily challenges with greater clarity.">A terapia é também um espaço de descoberta. Conhecer-se melhor permite lidar com mais clareza com as emoções, as relações e os desafios do dia a dia.</p></div>
+      <div class="srv-card"><div class="srv-icon"><svg width="24" height="24" style="color:var(--gold-dark)"><use href="#ic-loop"/></svg></div><h3 data-pt="Relacionamentos & Família" data-en="Relationships & Family">Relacionamentos & Família</h3><p data-pt="Dificuldades nas relações amorosas, familiares ou profissionais podem ser trabalhadas em terapia — individual ou em consulta de casal." data-en="Difficulties in romantic, family or professional relationships can be explored in therapy — individually or as a couple.">Dificuldades nas relações amorosas, familiares ou profissionais podem ser trabalhadas em terapia — individual ou em consulta de casal.</p></div>
+      <div class="srv-card"><div class="srv-icon"><svg width="24" height="24" style="color:var(--gold-dark)"><use href="#ic-star"/></svg></div><h3 data-pt="Avaliação Psicológica & RH" data-en="Psychological Assessment & HR">Avaliação Psicológica & RH</h3><p data-pt="Avaliação psicológica para procedimentos concursais, condutores e seguranças. Consultoria de recursos humanos e avaliação de competências." data-en="Psychological assessment for recruitment processes, drivers and security personnel. HR consulting and competency-based interviews.">Avaliação psicológica para procedimentos concursais, condutores e seguranças. Consultoria de recursos humanos e avaliação de competências.</p></div>
+    </div>
+  </div>
+
+  <!-- Testimonials -->
+  <div style="background:var(--warm-dark);padding:64px 2rem;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+    <div style="max-width:1040px;margin:0 auto">
+      <div class="sec-label" data-pt="Testemunhos" data-en="Testimonials">Testemunhos</div>
+      <div class="sec-title" data-pt="O que dizem os meus clientes" data-en="What my clients say">O que dizem os meus clientes</div>
+      <div class="sec-line" style="margin-bottom:40px"></div>
+      <div class="testi-grid">
+        <div class="testi-card"><div class="testi-stars">★★★★★</div><p data-pt='"Senti-me acolhida desde o primeiro momento. Um espaço seguro onde finalmente consigo ser eu própria."' data-en='"I felt welcomed from the very first session. A genuinely safe space to be myself."'>"Senti-me acolhida desde o primeiro momento. Um espaço seguro onde finalmente consigo ser eu própria."</p><div class="testi-author">— Ana M., Lisboa</div></div>
+        <div class="testi-card"><div class="testi-stars">★★★★★</div><p data-pt='"Nunca pensei que a terapia pudesse mudar tanto a forma como me vejo. Uma acompanhante extraordinária."' data-en='"I never thought therapy could change how I see myself this much. An extraordinary companion."'>"Nunca pensei que a terapia pudesse mudar tanto a forma como me vejo. Uma acompanhante extraordinária."</p><div class="testi-author">— João F., Lisboa</div></div>
+        <div class="testi-card"><div class="testi-stars">★★★★★</div><p data-pt='"Depois de anos a adiar, finalmente pedi ajuda. É a melhor decisão que tomei."' data-en='"After years of putting it off, I finally asked for help. Best decision I\'ve ever made."'>"Depois de anos a adiar, finalmente pedi ajuda. É a melhor decisão que tomei."</p><div class="testi-author">— Margarida S., Lisboa</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cta-strip">
+    <h2 data-pt="Pronta para dar o primeiro passo?" data-en="Ready to take the first step?">Pronta para dar o primeiro passo?</h2>
+    <p data-pt="A primeira consulta é apenas uma conversa — sem compromisso, sem pressão." data-en="The first session is just a conversation — no commitment, no pressure.">A primeira consulta é apenas uma conversa — sem compromisso, sem pressão.</p>
+    <button class="btn btn-gold" onclick="showPage('booking')"><svg width="16" height="16" style="color:white"><use href="#ic-calendar"/></svg><span data-pt="Agendar a minha primeira consulta" data-en="Book my first session">Agendar a minha primeira consulta</span></button>
+  </div>
+</div>
+
+<!-- ABOUT -->
+<div class="page" id="page-about">
+  <div class="section" style="padding-top:72px">
+    <div class="about-split">
+      <div style="position:relative">
+        <div class="about-photo-inner"><svg width="80" height="80" style="color:var(--gold-mid);opacity:.6"><use href="#ic-person"/></svg></div>
+        <div class="about-badge"><div class="num">8+</div><div class="lbl" data-pt="anos de experiência" data-en="years of experience">anos de experiência</div></div>
+      </div>
+      <div class="about-content">
+        <div class="tag-line" data-pt="Psicóloga Clínica · Cédula OPP n.º 15786" data-en="Clinical Psychologist · OPP no. 15786">Psicóloga Clínica · Cédula OPP n.º 15786</div>
+        <h2 id="about-name-el">Olá, sou a<br>Dra. Sofia Godinho Cabrita</h2>
+        <p id="about-p1-el">Sou Psicóloga Clínica, formada no ISPA – Instituto Universitário de Ciências Psicológicas, Sociais e da Vida, com Licenciatura em Psicologia Aplicada (Ramo Clínica) e Mestrado em Psicologia Clínica. Sou membro efectivo da Ordem dos Psicólogos Portugueses.</p>
+        <p id="about-p2-el">Ao longo de 15 anos de carreira tenho desenvolvido actividade em ambiente clínico e no mundo corporativo. Sigo o modelo de referência psicanalítico e a minha grande paixão é aliar o conhecimento humano aos desafios das organizações e do próprio indivíduo.</p>
+        <ul class="cred-list">
+          <li data-pt="Licenciatura em Psicologia Aplicada — ISPA, Instituto Universitário" data-en="Degree in Applied Psychology — ISPA, University Institute">Licenciatura em Psicologia Aplicada — ISPA, Instituto Universitário</li>
+          <li data-pt="Mestrado em Psicologia Clínica — ISPA, Instituto Universitário" data-en="Master's in Clinical Psychology — ISPA, University Institute">Mestrado em Psicologia Clínica — ISPA, Instituto Universitário</li>
+          <li data-pt="Membro efectivo da Ordem dos Psicólogos Portugueses — Cédula n.º 15786" data-en="Full member of the Portuguese Psychologists' Association — no. 15786">Membro efectivo da Ordem dos Psicólogos Portugueses — Cédula n.º 15786</li>
+          <li data-pt="15 anos de experiência clínica e consultoria" data-en="15 years of clinical and consulting experience">15 anos de experiência clínica e consultoria</li>
+          <li data-pt="Abordagem de referência psicanalítica" data-en="Psychoanalytic reference approach">Abordagem de referência psicanalítica</li>
+        </ul>
+        <button class="btn btn-primary" onclick="showPage('booking')"><span data-pt="Marcar consulta comigo" data-en="Book a session with me">Marcar consulta comigo</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SERVICES -->
+<div class="page" id="page-services">
+  <div class="section" style="padding-top:72px">
+    <div class="sec-label" data-pt="O que ofereço" data-en="What I offer">O que ofereço</div>
+    <div class="sec-title" data-pt="Consultas & Modalidades" data-en="Sessions & Formats">Consultas & Modalidades</div>
+    <div class="sec-line"></div>
+    <div class="srv-grid" style="margin-bottom:56px">
+      <div class="srv-card"><div class="srv-icon"><svg width="24" height="24" style="color:var(--gold-dark)"><use href="#ic-person"/></svg></div><h3 data-pt="Consulta Individual" data-en="Individual Session">Consulta Individual</h3><p data-pt="Acompanhamento semanal ou quinzenal para adultos e jovens adultos." data-en="Weekly or fortnightly support for adults and young adults.">Acompanhamento semanal ou quinzenal para adultos e jovens adultos.</p><div style="margin-top:14px;display:flex;gap:6px;flex-wrap:wrap"><span class="badge-pill">50 min</span><span class="badge-pill badge-blue" data-pt="Presencial & Online" data-en="In-person & Online">Presencial & Online</span></div></div>
+      <div class="srv-card"><div class="srv-icon"><svg width="24" height="24" style="color:var(--gold-dark)"><use href="#ic-laptop"/></svg></div><h3 data-pt="Consulta Online" data-en="Online Session">Consulta Online</h3><p data-pt="Sessões por videochamada numa plataforma segura e confidencial." data-en="Video call sessions on a secure, encrypted platform.">Sessões por videochamada numa plataforma segura e confidencial.</p><div style="margin-top:14px;display:flex;gap:6px;flex-wrap:wrap"><span class="badge-pill">50 min</span><span class="badge-pill badge-blue" data-pt="Todo o país" data-en="Worldwide">Todo o país</span></div></div>
+      <div class="srv-card"><div class="srv-icon"><svg width="24" height="24" style="color:var(--gold-dark)"><use href="#ic-clipboard"/></svg></div><h3 data-pt="Consulta de Avaliação" data-en="Initial Assessment">Consulta de Avaliação</h3><p data-pt="Sessão inicial de 60 minutos para nos conhecermos e delinear um plano adequado." data-en="A 60-minute introductory session to get to know each other and sketch a support plan.">Sessão inicial de 60 minutos para nos conhecermos e delinear um plano adequado.</p></div>
+    </div>
+    <div class="sec-label" data-pt="Transparência" data-en="Transparency">Transparência</div>
+    <div class="sec-title" data-pt="Honorários" data-en="Fees">Honorários</div>
+    <div class="sec-line" style="margin-bottom:12px"></div>
+    <div class="price-grid">
+      <div class="price-card"><h3 data-pt="Consulta Individual" data-en="Individual Session">Consulta Individual</h3><div class="price-val"><span id="pr-individual">60</span>€ <small data-pt="/ sessão" data-en="/ session">/ sessão</small></div><ul><li data-pt="50 minutos" data-en="50 minutes">50 minutos</li><li data-pt="Presencial ou online" data-en="In-person or online">Presencial ou online</li><li data-pt="Nota de pagamento" data-en="Payment receipt">Nota de pagamento</li></ul><button class="btn btn-outline" style="width:100%" onclick="showPage('booking')"><span data-pt="Marcar" data-en="Book">Marcar</span></button></div>
+      <div class="price-card featured"><div class="feat-badge" data-pt="✦ Mais Popular" data-en="✦ Most Popular">✦ Mais Popular</div><h3 data-pt="Pacote Mensal" data-en="Monthly Plan">Pacote Mensal</h3><div class="price-val"><span id="pr-mensal">220</span>€ <small data-pt="/ mês" data-en="/ month">/ mês</small></div><ul><li data-pt="4 sessões (50 min)" data-en="4 sessions (50 min)">4 sessões (50 min)</li><li data-pt="Prioridade na agenda" data-en="Priority scheduling">Prioridade na agenda</li><li data-pt="Notas para seguros" data-en="Insurance receipts">Notas para seguros</li></ul><button class="btn btn-gold" style="width:100%" onclick="showPage('booking')"><span data-pt="Marcar" data-en="Book">Marcar</span></button></div>
+      <div class="price-card"><h3 data-pt="Consulta Online" data-en="Online Session">Consulta Online</h3><div class="price-val"><span id="pr-online">55</span>€ <small data-pt="/ sessão" data-en="/ session">/ sessão</small></div><ul><li data-pt="50 minutos" data-en="50 minutes">50 minutos</li><li data-pt="Plataforma segura" data-en="Secure platform">Plataforma segura</li><li data-pt="Nota de pagamento" data-en="Payment receipt">Nota de pagamento</li></ul><button class="btn btn-outline" style="width:100%" onclick="showPage('booking')"><span data-pt="Marcar" data-en="Book">Marcar</span></button></div>
+    </div>
+  </div>
+</div>
+
+<!-- FAQ -->
+<div class="page" id="page-faq">
+  <div class="section" style="padding-top:72px;max-width:720px">
+    <div class="sec-label" data-pt="Dúvidas comuns" data-en="Common questions">Dúvidas comuns</div>
+    <div class="sec-title" data-pt="Perguntas Frequentes" data-en="Frequently Asked Questions">Perguntas Frequentes</div>
+    <div class="sec-line" style="margin-bottom:36px"></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span data-pt="Quando devo procurar um psicólogo?" data-en="When should I seek a psychologist?">Quando devo procurar um psicólogo?</span><span>＋</span></div><div class="faq-a" data-pt="Pode procurar apoio psicológico sempre que sentir que algo não está bem — seja uma fase difícil, tristeza persistente, ansiedade, dificuldades nas relações, ou simplesmente o desejo de se conhecer melhor. Não é preciso estar em crise para começar terapia." data-en="You can seek psychological support whenever you feel something isn't right — a difficult phase, persistent sadness, anxiety, relationship difficulties, or simply the desire to know yourself better. You don't need to be in crisis to start therapy.">Pode procurar apoio psicológico sempre que sentir que algo não está bem — seja uma fase difícil, tristeza persistente, ansiedade, dificuldades nas relações, ou simplesmente o desejo de se conhecer melhor. Não é preciso estar em crise para começar terapia.</div></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span data-pt="Como é a primeira consulta?" data-en="What happens in the first session?">Como é a primeira consulta?</span><span>＋</span></div><div class="faq-a" data-pt="A primeira consulta é um momento de apresentação mútua. Poderá partilhar o que a traz à terapia e o que espera do processo. A psicóloga irá escutá-la de forma activa, sem julgamentos. No final, decidem juntas se faz sentido continuar." data-en="The first session is a time of mutual introduction. You can share what brings you to therapy and what you hope for from the process. The psychologist will listen actively, without judgement. At the end, you decide together whether to continue.">A primeira consulta é um momento de apresentação mútua. Poderá partilhar o que a traz à terapia e o que espera do processo. A psicóloga irá escutá-la de forma activa, sem julgamentos. No final, decidem juntas se faz sentido continuar.</div></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span data-pt="É mesmo confidencial?" data-en="Is everything confidential?">É mesmo confidencial?</span><span>＋</span></div><div class="faq-a" data-pt="Sim, absolutamente. Tudo o que partilha em consulta é estritamente confidencial, ao abrigo do Código Deontológico da Ordem dos Psicólogos Portugueses. A única excepção é risco iminente de vida — e mesmo aí, seria sempre discutido consigo primeiro." data-en="Yes, absolutely. Everything shared in session is strictly confidential, under the Code of Ethics of the Portuguese Psychologists' Association. The only exception is imminent risk to life — and even then, it would always be discussed with you first.">Sim, absolutamente. Tudo o que partilha em consulta é estritamente confidencial, ao abrigo do Código Deontológico da Ordem dos Psicólogos Portugueses. A única excepção é risco iminente de vida — e mesmo aí, seria sempre discutido consigo primeiro.</div></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span data-pt="Quantas sessões vou precisar?" data-en="How many sessions will I need?">Quantas sessões vou precisar?</span><span>＋</span></div><div class="faq-a" data-pt="Não há um número fixo — depende de cada pessoa, dos seus objectivos e do seu ritmo. O processo terapêutico é construído de forma colaborativa, e o progresso é avaliado regularmente em conjunto." data-en="There is no fixed number — it depends on each person, their goals and their pace. The therapeutic process is built collaboratively, and progress is reviewed regularly together.">Não há um número fixo — depende de cada pessoa, dos seus objectivos e do seu ritmo. O processo terapêutico é construído de forma colaborativa, e o progresso é avaliado regularmente em conjunto.</div></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span data-pt="A consulta online tem a mesma qualidade?" data-en="Is online therapy just as effective?">A consulta online tem a mesma qualidade?</span><span>＋</span></div><div class="faq-a" data-pt="Sim. As sessões online realizam-se por videochamada numa plataforma segura e encriptada. A investigação científica confirma que a psicoterapia online é igualmente eficaz para a maioria das situações clínicas. Muitos clientes até preferem a privacidade de casa." data-en="Yes. Online sessions take place via video call on a secure, encrypted platform. Research confirms that online psychotherapy is equally effective for most clinical situations. Many clients even prefer the privacy of being at home.">Sim. As sessões online realizam-se por videochamada numa plataforma segura e encriptada. A investigação científica confirma que a psicoterapia online é igualmente eficaz para a maioria das situações clínicas. Muitos clientes até preferem a privacidade de casa.</div></div>
+    <div class="faq-item"><div class="faq-q" onclick="toggleFaq(this)"><span data-pt="O que é a avaliação psicológica?" data-en="What is psychological assessment?">O que é a avaliação psicológica?</span><span>＋</span></div><div class="faq-a" data-pt="A avaliação psicológica é um procedimento que visa avaliar, através de instrumentos validados, as aptidões, características de personalidade e competências comportamentais de um indivíduo. A Dra. Sofia tem especialização em procedimentos concursais, condutores, seguranças e orientação vocacional." data-en="Psychological assessment is a procedure that uses validated instruments to evaluate an individual's aptitudes, personality characteristics and behavioural competencies. Dr. Sofia specialises in recruitment processes, drivers, security personnel and vocational guidance.">A avaliação psicológica é um procedimento que visa avaliar, através de instrumentos validados, as aptidões, características de personalidade e competências comportamentais de um indivíduo. A Dra. Sofia tem especialização em procedimentos concursais, condutores, seguranças e orientação vocacional.</div></div>
+    <div style="margin-top:36px;padding:24px;background:var(--gold-light);border-radius:var(--radius);text-align:center;border:1px solid var(--gold-mid)">
+      <p style="font-size:.95rem;color:var(--text-muted);margin-bottom:14px;font-family:'Segoe UI',sans-serif" data-pt="Tens uma dúvida que não está aqui?" data-en="Have a question that isn't here?">Tens uma dúvida que não está aqui?</p>
+      <button class="btn btn-primary" onclick="showPage('contact')"><span data-pt="Enviar mensagem" data-en="Send a message">Enviar mensagem</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- CONTACT -->
+<div class="page" id="page-contact">
+  <div class="section" style="padding-top:72px">
+    <div class="sec-label" data-pt="Fala comigo" data-en="Get in touch">Fala comigo</div>
+    <div class="sec-title" data-pt="Contacto" data-en="Contact">Contacto</div>
+    <div class="sec-line" style="margin-bottom:40px"></div>
+    <div class="contact-grid">
+      <div>
+        <div class="cinfo-item"><div class="cinfo-icon"><svg width="20" height="20" style="color:var(--gold-dark)"><use href="#ic-pin"/></svg></div><div><h4 data-pt="Consultório" data-en="Practice">Consultório</h4><p id="c-address-el">Rua Exemplo, 123, 1.º Dto<br>1000-001 Lisboa</p></div></div>
+        <div class="cinfo-item"><div class="cinfo-icon"><svg width="20" height="20" style="color:var(--gold-dark)"><use href="#ic-phone"/></svg></div><div><h4 data-pt="Telemóvel" data-en="Phone">Telemóvel</h4><p id="c-phone-el">+351 912 345 678</p></div></div>
+        <div class="cinfo-item"><div class="cinfo-icon"><svg width="20" height="20" style="color:var(--gold-dark)"><use href="#ic-mail"/></svg></div><div><h4>Email</h4><p id="c-email-el">geral@mutuamente.pt</p></div></div>
+        <div class="cinfo-item"><div class="cinfo-icon"><svg width="20" height="20" style="color:var(--gold-dark)"><use href="#ic-clock"/></svg></div><div><h4 data-pt="Disponibilidade" data-en="Availability">Disponibilidade</h4><p id="c-hours-el">Segunda a Sexta: 9h – 20h<br>Sábado: 9h – 13h</p></div></div>
+        <div class="cinfo-item"><div class="cinfo-icon"><svg width="20" height="20" style="color:var(--gold-dark)"><use href="#ic-instagram"/></svg></div><div><h4>Instagram</h4><p><a href="https://instagram.com/_mutuamente_" target="_blank" style="color:var(--gold-dark);text-decoration:none">@_mutuamente_</a></p></div></div>
+        <div class="map-box"><svg width="20" height="20" style="color:var(--text-muted)"><use href="#ic-map"/></svg>Lisboa, Portugal</div>
+      </div>
+      <div class="form-card">
+        <h3 data-pt="Enviar Mensagem" data-en="Send a Message">Enviar Mensagem</h3>
+        <div class="form-row">
+          <div class="form-group"><label data-pt="Nome" data-en="Name">Nome</label><input type="text" placeholder="O teu nome"></div>
+          <div class="form-group"><label>Email</label><input type="email" placeholder="email@exemplo.pt"></div>
+        </div>
+        <div class="form-group"><label data-pt="Assunto" data-en="Subject">Assunto</label><select><option data-pt="Quero marcar consulta" data-en="I'd like to book">Quero marcar consulta</option><option data-pt="Informações" data-en="Information">Informações</option><option data-pt="Outra questão" data-en="Other">Outra questão</option></select></div>
+        <div class="form-group"><label data-pt="Mensagem" data-en="Message">Mensagem</label><textarea rows="5"></textarea></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="alert(lang==='pt'?'Mensagem enviada!':'Message sent!')">
+          <svg width="16" height="16" style="color:white"><use href="#ic-mail"/></svg>
+          <span data-pt="Enviar" data-en="Send">Enviar</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BOOKING -->
+<div class="page" id="page-booking">
+  <div class="section" style="padding-top:72px">
+    <div class="sec-label" data-pt="Agenda" data-en="Scheduling">Agenda</div>
+    <div class="sec-title" data-pt="Marcar Consulta" data-en="Book a Session">Marcar Consulta</div>
+    <div class="sec-line" style="margin-bottom:36px"></div>
+    <div style="max-width:760px;margin:0 auto" id="bk-form">
+      <div class="bk-steps">
+        <button class="bk-step-btn active" id="sbtn-1" data-pt="① Consulta" data-en="① Session">① Consulta</button>
+        <button class="bk-step-btn" id="sbtn-2" data-pt="② Data & Hora" data-en="② Date & Time">② Data & Hora</button>
+        <button class="bk-step-btn" id="sbtn-3" data-pt="③ Os teus dados" data-en="③ Your details">③ Os teus dados</button>
+        <button class="bk-step-btn" id="sbtn-4" data-pt="④ Pagamento" data-en="④ Payment">④ Pagamento</button>
+      </div>
+      <div class="bk-pane active" id="bp-1">
+        <div class="form-card">
+          <div class="form-group"><label data-pt="Tipo de consulta" data-en="Session type">Tipo de consulta</label>
+            <select id="b-type" onchange="updateModeFromType(this.value)">
+              <option value="clinica-presencial" data-pt="Consulta de Psicologia Clínica — Presencial" data-en="Clinical Psychology — In-person" data-mode="presencial">Consulta de Psicologia Clínica — Presencial</option>
+              <option value="clinica-online" data-pt="Consulta de Psicologia Clínica — Online" data-en="Clinical Psychology — Online" data-mode="online">Consulta de Psicologia Clínica — Online</option>
+              <option value="avaliacao" data-pt="Avaliação Psicológica" data-en="Psychological Assessment" data-mode="presencial">Avaliação Psicológica</option>
+              <option value="rh" data-pt="Consultoria de Recursos Humanos" data-en="HR Consulting" data-mode="presencial">Consultoria de Recursos Humanos</option>
+            </select>
+          </div>
+          <div id="mode-info" style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--blue-light);border-radius:var(--radius-sm);font-size:.88rem;font-family:'Segoe UI',sans-serif;color:var(--blue-dark);margin-bottom:16px">
+            <svg width="16" height="16" style="color:var(--blue-mid);flex-shrink:0"><use href="#ic-pin"/></svg>
+            <span id="mode-info-text">Presencial — Lisboa</span>
+          </div>
+          <input type="hidden" id="b-mode" value="Presencial — Lisboa">
+          <div style="display:flex;justify-content:flex-end"><button class="btn btn-primary" onclick="goStep(2)"><span data-pt="Continuar →" data-en="Continue →">Continuar →</span></button></div>
+        </div>
+      </div>
+      <div class="bk-pane" id="bp-2">
+        <div class="form-card">
+          <div class="cal-wrap"><div class="cal-hdr"><button onclick="changeMonth(-1)">‹</button><span id="cal-title"></span><button onclick="changeMonth(1)">›</button></div><div class="cal-grid" id="cal-grid"></div></div>
+          <div id="time-section" style="display:none;margin-top:20px"><p style="font-weight:600;margin-bottom:12px;font-size:.93rem;font-family:'Segoe UI',sans-serif"><span data-pt="Horários —" data-en="Times —">Horários —</span> <span id="sel-date-lbl" style="color:var(--gold-dark)"></span></p><div class="time-grid" id="time-slots"></div></div>
+          <div style="display:flex;justify-content:space-between;margin-top:22px"><button class="btn btn-outline" onclick="goStep(1)"><span data-pt="← Voltar" data-en="← Back">← Voltar</span></button><button class="btn btn-primary" id="step2-next" onclick="goStep(3)" style="display:none"><span data-pt="Continuar →" data-en="Continue →">Continuar →</span></button></div>
+        </div>
+      </div>
+      <div class="bk-pane" id="bp-3">
+        <div class="form-card">
+          <div class="form-row"><div class="form-group"><label data-pt="Nome *" data-en="Full name *">Nome *</label><input id="b-name" type="text" placeholder="Maria Silva"></div><div class="form-group"><label data-pt="Data de nascimento *" data-en="Date of birth *">Data de nascimento *</label><input type="date" id="b-dob"></div></div>
+          <div class="form-row"><div class="form-group"><label>Email *</label><input id="b-email" type="email" placeholder="email@exemplo.pt"></div><div class="form-group"><label data-pt="Telemóvel *" data-en="Phone *">Telemóvel *</label><input id="b-phone" type="tel" placeholder="+351 9XX XXX XXX"></div></div>
+          <div class="form-group"><label data-pt="Notas (opcional)" data-en="Notes (optional)">Notas (opcional)</label><textarea rows="3"></textarea></div>
+          <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:22px;font-size:.87rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif"><input type="checkbox" id="b-consent" style="width:16px;height:16px;margin-top:3px;flex-shrink:0"><label for="b-consent"><span data-pt="Aceito a" data-en="I agree to the">Aceito a</span> <a href="#" style="color:var(--gold-dark)" data-pt="Política de Privacidade" data-en="Privacy Policy">Política de Privacidade</a></label></div>
+          <div style="display:flex;justify-content:space-between"><button class="btn btn-outline" onclick="goStep(2)"><span data-pt="← Voltar" data-en="← Back">← Voltar</span></button><button class="btn btn-primary" onclick="validateStep3()"><span data-pt="Continuar →" data-en="Continue →">Continuar →</span></button></div>
+        </div>
+      </div>
+      <div class="bk-pane" id="bp-4">
+        <div class="pm-summary"><h3 data-pt="Resumo" data-en="Summary">Resumo</h3><div class="sum-row"><span data-pt="Consulta" data-en="Session">Consulta</span><span id="sum-s">—</span></div><div class="sum-row"><span data-pt="Data & Hora" data-en="Date & Time">Data & Hora</span><span id="sum-d">—</span></div><div class="sum-row"><span data-pt="Modalidade" data-en="Format">Modalidade</span><span id="sum-m">—</span></div><div class="sum-row total"><span>Total</span><span id="sum-p">—</span></div></div>
+        <div class="form-card">
+          <h3 style="margin-bottom:16px" data-pt="Método de pagamento" data-en="Payment method">Método de pagamento</h3>
+          <div class="pm-methods"><button class="pm-btn active" onclick="setPM(this,'card')"><svg width="14" height="14" style="vertical-align:middle;margin-right:4px"><use href="#ic-card"/></svg><span data-pt="Cartão" data-en="Card">Cartão</span></button><button class="pm-btn" onclick="setPM(this,'mb')">Multibanco</button><button class="pm-btn" onclick="setPM(this,'mbway')">MB WAY</button></div>
+          <div id="pm-card"><div class="form-group"><label data-pt="Número do cartão" data-en="Card number">Número do cartão</label><div class="card-row"><input type="text" placeholder="1234 5678 9012 3456" maxlength="19" oninput="fmtCard(this)"><input type="text" placeholder="MM/AA" maxlength="5"><input type="text" placeholder="CVV" maxlength="3"></div></div><div class="form-group"><label data-pt="Nome no cartão" data-en="Name on card">Nome no cartão</label><input type="text" placeholder="MARIA SILVA"></div></div>
+          <div id="pm-mb" style="display:none;padding:18px;background:var(--warm-dark);border-radius:var(--radius-sm);font-family:'Segoe UI',sans-serif;font-size:.9rem;color:var(--text-muted);text-align:center">Após confirmar, receberá uma referência Multibanco por email.</div>
+          <div id="pm-mbway" style="display:none"><div class="form-group"><label>Telemóvel MB WAY</label><input type="tel" placeholder="+351 9XX XXX XXX"></div></div>
+          <div style="display:flex;justify-content:space-between;margin-top:20px"><button class="btn btn-outline" onclick="goStep(3)"><span data-pt="← Voltar" data-en="← Back">← Voltar</span></button><button class="btn btn-gold" onclick="confirmBooking()"><svg width="16" height="16" style="color:white"><use href="#ic-check"/></svg><span data-pt="Confirmar e Pagar" data-en="Confirm & Pay">Confirmar e Pagar</span></button></div>
+        </div>
+      </div>
+    </div>
+    <div class="success-wrap" id="bk-success" style="display:none;max-width:540px;margin:0 auto">
+      <svg width="52" height="52" style="color:var(--blue);margin-bottom:16px"><use href="#ic-check"/></svg>
+      <h2 data-pt="Marcação confirmada" data-en="Booking confirmed">Marcação confirmada</h2>
+      <p data-pt="A tua consulta foi agendada com sucesso." data-en="Your session has been successfully scheduled.">A tua consulta foi agendada com sucesso.</p>
+      <p style="margin-bottom:24px"><span data-pt="Confirmação enviada para" data-en="Confirmation sent to">Confirmação enviada para</span> <strong id="conf-email"></strong></p>
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:28px;font-style:italic">"O primeiro passo é sempre o mais corajoso."</p>
+      <button class="btn btn-primary" onclick="resetBooking()"><span data-pt="Fazer nova marcação" data-en="Book another session">Fazer nova marcação</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <img class="site-logo" src="" alt="MutuaMente" style="width:42px;height:42px;border-radius:50%;object-fit:contain;background:rgba(255,255,255,.1);padding:3px">
+        <div><div style="color:white;font-family:Georgia,serif;font-size:.95rem;font-weight:700">MutuaMente</div><div style="font-size:.7rem;color:rgba(255,255,255,.4);letter-spacing:1.5px;font-family:'Segoe UI',sans-serif" id="footer-sub-text">PSICOLOGIA</div></div>
+      </div>
+      <p data-pt="Um espaço de psicologia criado com cuidado." data-en="A psychology practice built with care.">Um espaço de psicologia criado com cuidado.</p>
+      <a href="https://instagram.com/_mutuamente_" target="_blank" style="margin-top:8px;color:var(--gold)!important;display:flex;align-items:center;gap:6px"><svg width="14" height="14" style="color:var(--gold)"><use href="#ic-instagram"/></svg>@_mutuamente_</a>
+    </div>
+    <div>
+      <h4 data-pt="Páginas" data-en="Pages">Páginas</h4>
+      <a onclick="showPage('home')" data-pt="Início" data-en="Home">Início</a>
+      <a onclick="showPage('about')" data-pt="Sobre mim" data-en="About Me">Sobre mim</a>
+      <a onclick="showPage('services')" data-pt="Consultas & Preços" data-en="Sessions & Fees">Consultas & Preços</a>
+      <a onclick="showPage('faq')">FAQ</a>
+      <a onclick="showPage('contact')" data-pt="Contacto" data-en="Contact">Contacto</a>
+      <a onclick="showPage('booking')" data-pt="Marcar Consulta" data-en="Book a Session">Marcar Consulta</a>
+    </div>
+    <div>
+      <h4 data-pt="Contacto" data-en="Contact">Contacto</h4>
+      <p id="footer-address">Lisboa, Portugal</p>
+      <p id="footer-phone">+351 912 345 678</p>
+      <p id="footer-email">geral@mutuamente.pt</p>
+    </div>
+  </div>
+  <div class="footer-bot">
+    <span data-pt="© 2025 MutuaMente Psicologia" data-en="© 2025 MutuaMente Psychology">© 2025 MutuaMente Psicologia</span>
+    <span data-pt="Membro da Ordem dos Psicólogos Portugueses" data-en="Member of the Portuguese Psychologists' Association (OPP)">Membro da Ordem dos Psicólogos Portugueses</span>
+  </div>
+</footer>
+
+<script>
+// ── Logo — substitui este URL pelo teu URL do GitHub ─────────
+const LOGO_URL = 'https://raw.githubusercontent.com/Mutuamente/mutuamente-website/refs/heads/main/Transparent%20Logo.svg';
+document.querySelectorAll('.site-logo,#login-logo-img,#admin-nav-logo').forEach(el=>{
+  if(el){ el.src=LOGO_URL; el.style.display='block'; }
+});
+
+// ── Lang ──────────────────────────────────────────────────────
+let lang='pt';
+function setLang(l){
+  lang=l;
+  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.textContent===l.toUpperCase()));
+  document.querySelectorAll('[data-pt]').forEach(el=>{
+    const val=el.getAttribute('data-'+l);if(!val)return;
+    if(['H1','H2'].includes(el.tagName)||el.getAttribute('data-pt').includes('<'))el.innerHTML=val;
+    else if(el.classList.contains('faq-a'))el.textContent=val;
+    else el.textContent=val;
+  });
+  document.getElementById('nav-sub-text').textContent=l==='en'?'Psychology':'Psicologia';
+  document.getElementById('footer-sub-text').textContent=l==='en'?'PSYCHOLOGY':'PSICOLOGIA';
+  applyContent();
+  renderNewsHome();
+  renderCal();
+}
+
+// ── Apply content from Firestore to DOM ───────────────────────
+function applyContent(){
+  const c=window.MM?.content||{};
+  const set=(id,val,isHtml=false)=>{const el=document.getElementById(id);if(el){if(isHtml)el.innerHTML=val||'';else el.textContent=val||'';}};
+  document.getElementById('hero-title-el').innerHTML=lang==='en'?(c.heroTitleEn||c.heroTitlePt||''):(c.heroTitlePt||'');
+  document.getElementById('hero-sub-el').textContent=lang==='en'?(c.heroSubEn||c.heroSubPt||''):(c.heroSubPt||'');
+  document.getElementById('about-name-el').innerHTML=lang==='en'?(c.aboutNameEn||c.aboutNamePt||''):(c.aboutNamePt||'');
+  document.getElementById('about-p1-el').innerHTML=lang==='en'?(c.aboutP1En||c.aboutP1Pt||''):(c.aboutP1Pt||'');
+  document.getElementById('about-p2-el').innerHTML=lang==='en'?(c.aboutP2En||c.aboutP2Pt||''):(c.aboutP2Pt||'');
+  set('c-address-el',c.address,true);set('c-phone-el',c.phone);set('c-email-el',c.email);
+  document.getElementById('c-hours-el').innerHTML=lang==='en'?(c.hoursEn||c.hoursPt||''):(c.hoursPt||'');
+  set('footer-address',c.address,true);set('footer-phone',c.phone);set('footer-email',c.email);
+  if(c.priceIndividual)document.getElementById('pr-individual').textContent=c.priceIndividual;
+  if(c.priceMensal)document.getElementById('pr-mensal').textContent=c.priceMensal;
+  if(c.priceOnline)document.getElementById('pr-online').textContent=c.priceOnline;
+}
+
+// ── News render ───────────────────────────────────────────────
+function renderNewsHome(){
+  const news=window.MM?.news||[];
+  const sec=document.getElementById('news-section-home');
+  const grid=document.getElementById('news-grid-home');
+  if(!sec||!grid)return;
+  if(news.length===0){sec.style.display='none';return;}
+  sec.style.display='block';
+  grid.innerHTML=news.slice(0,3).map(n=>`
+    <div class="news-card">
+      <div class="news-card-img"><svg width="36" height="36" style="color:var(--gold-mid);opacity:.5"><use href="#ic-news"/></svg></div>
+      <div class="news-card-body">
+        <div class="news-tag">${n.tag||'Novidade'}</div>
+        <h3>${lang==='en'?(n.titleEn||n.titlePt):n.titlePt}</h3>
+        <p>${lang==='en'?(n.bodyEn||n.bodyPt):n.bodyPt}</p>
+        <div class="news-date">${n.date||''}</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderNewsAdmin(){
+  const news=window.MM?.news||[];
+  const list=document.getElementById('news-list-admin');
+  if(!list)return;
+  document.getElementById('stat-news').textContent=news.length;
+  if(news.length===0){list.innerHTML='<p style="color:var(--text-muted);font-family:\'Segoe UI\',sans-serif;font-size:.9rem">Nenhuma notícia publicada ainda.</p>';return;}
+  list.innerHTML=news.map(n=>`
+    <div class="news-item-admin">
+      <h5>${n.titlePt}</h5>
+      <p>${(n.bodyPt||'').substring(0,80)}${n.bodyPt?.length>80?'...':''}</p>
+      <div style="font-size:.75rem;color:var(--text-muted);font-family:'Segoe UI',sans-serif;margin-top:4px">${n.tag||''} · ${n.date||''}</div>
+      <div class="news-item-btns">
+        <button class="news-edit-btn" onclick="openNewsModal('${n.id}')">Editar</button>
+        <button class="news-del-btn" onclick="deleteNews('${n.id}')">Eliminar</button>
+      </div>
+    </div>`).join('');
+}
+
+// ── Admin UI (global scope) ───────────────────────────────────
+function showAdminLogin(){document.getElementById('admin-login-overlay').classList.add('show');}
+function updateAdminUserDisplay(email){const el=document.getElementById('admin-user-display');if(el)el.textContent=email;}
+function switchAdminTab(tab){
+  document.querySelectorAll('.admin-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.admin-nav-links button:not(.admin-logout)').forEach(b=>b.classList.remove('active'));
+  document.getElementById('admin-'+tab)?.classList.add('active');
+  document.getElementById('atab-'+tab)?.classList.add('active');
+}
+function loadAdminFields(){
+  const c=window.MM?.content||{};
+  const s=(id,v)=>{const el=document.getElementById(id);if(el)el.value=(v||'').replace(/<br>/g,'\n').replace(/<[^>]+>/g,'');};
+  s('c-hero-title-pt',c.heroTitlePt);s('c-hero-title-en',c.heroTitleEn);
+  s('c-hero-sub-pt',c.heroSubPt);s('c-hero-sub-en',c.heroSubEn);
+  s('c-about-name-pt',c.aboutNamePt);s('c-about-name-en',c.aboutNameEn);
+  s('c-about-p1-pt',c.aboutP1Pt);s('c-about-p1-en',c.aboutP1En);
+  s('c-about-p2-pt',c.aboutP2Pt);s('c-about-p2-en',c.aboutP2En);
+  s('c-address',c.address);s('c-phone',c.phone);s('c-email',c.email);
+  const el=document.getElementById('c-hours-pt');if(el)el.value=(c.hoursPt||'').replace(/<br>/g,' | ');
+  const el2=document.getElementById('c-hours-en');if(el2)el2.value=(c.hoursEn||'').replace(/<br>/g,' | ');
+  const pi=document.getElementById('c-price-individual');if(pi)pi.value=c.priceIndividual||60;
+  const pm=document.getElementById('c-price-mensal');if(pm)pm.value=c.priceMensal||220;
+  const po=document.getElementById('c-price-online');if(po)po.value=c.priceOnline||55;
+  const pa=document.getElementById('c-price-avaliacao');if(pa)pa.value=c.priceAvaliacao||70;
+}
+
+function openNewsModal(id){
+  document.getElementById('news-modal').classList.add('show');
+  const today=new Date().toISOString().split('T')[0];
+  if(id){
+    const n=(window.MM?.news||[]).find(x=>x.id===id);
+    if(!n)return;
+    document.getElementById('news-modal-title').textContent='Editar Notícia';
+    document.getElementById('news-editing-id').value=id;
+    document.getElementById('nm-title-pt').value=n.titlePt||'';
+    document.getElementById('nm-body-pt').value=n.bodyPt||'';
+    document.getElementById('nm-title-en').value=n.titleEn||'';
+    document.getElementById('nm-body-en').value=n.bodyEn||'';
+    document.getElementById('nm-tag').value=n.tag||'';
+    document.getElementById('nm-date').value=n.date||today;
+  } else {
+    document.getElementById('news-modal-title').textContent='Nova Notícia';
+    document.getElementById('news-editing-id').value='';
+    ['nm-title-pt','nm-body-pt','nm-title-en','nm-body-en','nm-tag'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('nm-date').value=today;
+  }
+}
+function closeNewsModal(){document.getElementById('news-modal').classList.remove('show');}
+
+function showToast(msg,isErr){
+  const t=document.getElementById('saved-toast');
+  document.getElementById('toast-msg').textContent=msg||'Guardado!';
+  t.classList.toggle('error',!!isErr);
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+// ── Website nav ───────────────────────────────────────────────
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-links a').forEach(a=>a.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  const n=document.getElementById('nav-'+id);if(n)n.classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+  if(id==='booking')initCal();
+}
+function toggleFaq(el){
+  const a=el.nextElementSibling,s=el.querySelector('span:last-child');
+  a.classList.toggle('open');s.textContent=a.classList.contains('open')?'−':'＋';
+}
+
+// ── Booking ───────────────────────────────────────────────────
+let selDate=null,selTime=null,calDate=new Date();
+function goStep(n){
+  document.querySelectorAll('.bk-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.bk-step-btn').forEach(b=>b.classList.remove('active','done'));
+  document.getElementById('bp-'+n).classList.add('active');
+  document.getElementById('sbtn-'+n).classList.add('active');
+  for(let i=1;i<n;i++)document.getElementById('sbtn-'+i).classList.add('done');
+  if(n===4)fillSummary();
+}
+function initCal(){calDate=new Date();renderCal();}
+function changeMonth(d){calDate.setMonth(calDate.getMonth()+d);renderCal();}
+function renderCal(){
+  const now=new Date(),y=calDate.getFullYear(),m=calDate.getMonth();
+  const mPT=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const mEN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('cal-title').textContent=(lang==='en'?mEN:mPT)[m]+' '+y;
+  const first=new Date(y,m,1).getDay(),dim=new Date(y,m+1,0).getDate();
+  const lPT=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'],lEN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let h=(lang==='en'?lEN:lPT).map(l=>`<div class="cal-lbl">${l}</div>`).join('');
+  for(let i=0;i<first;i++)h+=`<div class="cal-day emp"></div>`;
+  for(let d=1;d<=dim;d++){
+    const dt=new Date(y,m,d),past=dt<new Date(now.getFullYear(),now.getMonth(),now.getDate()),wknd=dt.getDay()===0;
+    const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    let cls='cal-day';
+    if(past||wknd)cls+=' past';
+    if(ds===now.toISOString().split('T')[0])cls+=' today';
+    if(selDate===ds)cls+=' sel';
+    h+=`<div class="${cls}" onclick="${past||wknd?'':`pickDay('${ds}')`}">${d}</div>`;
+  }
+  document.getElementById('cal-grid').innerHTML=h;
+}
+function pickDay(ds){
+  selDate=ds;selTime=null;renderCal();
+  const[y,m,d]=ds.split('-');
+  const mPT=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const mEN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('sel-date-lbl').textContent=lang==='en'?`${mEN[parseInt(m)-1]} ${d}, ${y}`:`${d} de ${mPT[parseInt(m)-1]} de ${y}`;
+  const times=['9:00','9:30','10:00','10:30','11:00','14:00','14:30','15:00','15:30','16:00','16:30','17:00','17:30','18:00','18:30','19:00'];
+  const taken=['10:00','14:30','17:00'];
+  document.getElementById('time-slots').innerHTML=times.map(t=>{const tk=taken.includes(t);return`<div class="tslot${tk?' taken':''}" onclick="${tk?'':`pickTime('${t}')`}">${t}${tk?' ✗':''}</div>`;}).join('');
+  document.getElementById('time-section').style.display='block';
+  document.getElementById('step2-next').style.display='none';
+}
+function pickTime(t){selTime=t;document.querySelectorAll('.tslot').forEach(s=>s.classList.toggle('sel',s.textContent.trim()===t));document.getElementById('step2-next').style.display='inline-flex';}
+function validateStep3(){
+  if(!document.getElementById('b-name').value.trim()||!document.getElementById('b-email').value.trim()||!document.getElementById('b-phone').value.trim()||!document.getElementById('b-consent').checked){
+    alert(lang==='pt'?'Preenche todos os campos obrigatórios.':'Please fill in all required fields.');return;
+  }
+  goStep(4);
+}
+function fillSummary(){
+  const mPT={'clinica-presencial':'Consulta de Psicologia Clínica','clinica-online':'Consulta de Psicologia Clínica','avaliacao':'Avaliação Psicológica','rh':'Consultoria de RH'};
+  const mEN={'clinica-presencial':'Clinical Psychology','clinica-online':'Clinical Psychology','avaliacao':'Psychological Assessment','rh':'HR Consulting'};
+  const c=window.MM?.content||{};
+  const pM={'clinica-presencial':c.priceIndividual||60,'clinica-online':c.priceOnline||55,'avaliacao':c.priceAvaliacao||70,'rh':c.priceMensal||80};
+  const t=document.getElementById('b-type').value;
+  const[y,mn,d]=(selDate||'').split('-');
+  const mosPT=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const mosEN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const modeVal=document.getElementById('b-mode').value;
+  document.getElementById('sum-s').textContent=(lang==='en'?mEN:mPT)[t]||t;
+  document.getElementById('sum-d').textContent=selDate?(lang==='en'?`${mosEN[parseInt(mn)-1]} ${d}, ${y} at ${selTime}`:`${d} ${mosPT[parseInt(mn)-1]} ${y}, ${selTime}`):'—';
+  document.getElementById('sum-m').textContent=modeVal;
+  document.getElementById('sum-p').textContent=(pM[t]||'—')+'€';
+}
+function updateModeFromType(val){
+  const sel=document.getElementById('b-type');
+  const opt=sel.options[sel.selectedIndex];
+  const mode=opt.getAttribute('data-mode');
+  const isOnline=mode==='online';
+  const modeText=isOnline
+    ?(lang==='en'?'Online (Video call)':'Online (Videochamada)')
+    :(lang==='en'?'In-person — Lisbon':'Presencial — Lisboa');
+  document.getElementById('mode-info-text').textContent=modeText;
+  document.getElementById('b-mode').value=modeText;
+  const icon=document.getElementById('mode-info').querySelector('use');
+  if(icon) icon.setAttribute('href', isOnline?'#ic-laptop':'#ic-pin');
+}
+document.querySelectorAll('.pm-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');['pm-card','pm-mb','pm-mbway'].forEach(id=>document.getElementById(id).style.display='none');document.getElementById('pm-'+method).style.display='block';}
+function fmtCard(i){let v=i.value.replace(/\D/g,'').substring(0,16);i.value=v.replace(/(.{4})/g,'$1 ').trim();}
+function confirmBooking(){
+  const email=document.getElementById('b-email').value||'o teu email';
+  document.getElementById('conf-email').textContent=email;
+  document.getElementById('bk-form').style.display='none';
+  document.getElementById('bk-success').style.display='block';
+}
+function resetBooking(){document.getElementById('bk-form').style.display='block';document.getElementById('bk-success').style.display='none';selDate=null;selTime=null;goStep(1);initCal();}
+
+// ── Init ──────────────────────────────────────────────────────
+initCal();
+</script>
+</body>
+</html>
