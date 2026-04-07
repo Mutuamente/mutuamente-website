@@ -880,7 +880,7 @@ footer a:hover{color:var(--gold)}
 
 <script>
 // ── Logo — substitui este URL pelo teu URL do GitHub ─────────
-const LOGO_URL = 'https://raw.githubusercontent.com/Mutuamente/mutuamente-website/refs/heads/main/Transparent%20Logo.svg';
+const LOGO_URL = 'https://raw.githubusercontent.com/Mutuamente/mutuamente-website/main/Transparent%20Logo.svg';
 document.querySelectorAll('.site-logo,#login-logo-img,#admin-nav-logo').forEach(el=>{
   if(el){ el.src=LOGO_URL; el.style.display='block'; }
 });
@@ -1117,6 +1117,22 @@ function confirmBooking(){
   document.getElementById('bk-success').style.display='block';
 }
 function resetBooking(){document.getElementById('bk-form').style.display='block';document.getElementById('bk-success').style.display='none';selDate=null;selTime=null;goStep(1);initCal();}
+
+window.toggleFaq = toggleFaq;
+window.goStep = goStep;
+window.changeMonth = changeMonth;
+window.pickDay = pickDay;
+window.pickTime = pickTime;
+window.validateStep3 = validateStep3;
+window.setPM = setPM;
+window.fmtCard = fmtCard;
+window.confirmBooking = confirmBooking;
+window.resetBooking = resetBooking;
+window.setLang = setLang;
+window.updateModeFromType = updateModeFromType;
+window.loadAdminFields = loadAdminFields;
+window.renderNewsAdmin = renderNewsAdmin;
+window.updateAdminUserDisplay = updateAdminUserDisplay;
 
 // ── Init ──────────────────────────────────────────────────────
 initCal();
